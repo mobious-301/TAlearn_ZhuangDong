@@ -1,49 +1,162 @@
 ﻿Shader "AP01/L07/Shadow" {
-    Properties {
-    }
-    SubShader {
-        Tags {
-            "RenderType"="Opaque"
-        }
-        Pass {
-            Name "FORWARD"
-            // Tags {
-            //     "LightMode"="ForwardBase"
-            // }
 
-
-            CGPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
-            #include "UnityCG.cginc"
-            #include "AutoLight.cginc"      // 使用Unity投影必须包含这两个库文件
-            #include "Lighting.cginc"       // 同上
-            
-            #pragma multi_compile_fwdbase_fullshadows
-            #pragma target 3.0
-            // 输入结构
-            struct VertexInput {
-                float4 vertex : POSITION;   // 将模型的顶点信息输入进来
-            };
-            // 输出结构
-            struct VertexOutput {
-                float4 pos : SV_POSITION;   // 由模型顶点信息换算而来的顶点屏幕位置
-                LIGHTING_COORDS(0,1)        // 投影用坐标信息 Unity已封装 不用管细节
-            };
-            // 输入结构>>>顶点Shader>>>输出结构
-            VertexOutput vert (VertexInput v) {
-                VertexOutput o = (VertexOutput)0;           // 新建一个输出结构
-                o.pos = UnityObjectToClipPos( v.vertex );   // 变换顶点信息 并将其塞给输出结构
-                TRANSFER_VERTEX_TO_FRAGMENT(o)              // Unity封装 不用管细节
-                return o;                                   // 将输出结构 输出
+            Properties
+        
+            {
+        
+                _MainTex("MainTex",2D)="white"{}
+        
+                _BaseColor("BaseColor",Color)=(1,1,1,1)
+        
+                _Gloss("gloss",Range(10,300))=20
+        
+                _SpecularColor("SpecularColor",Color  )=(1,1,1,1)
+        
             }
-            // 输出结构>>>像素
-            float4 frag(VertexOutput i) : COLOR {
-                float shadow = LIGHT_ATTENUATION(i);        // 同样Unity封装好的函数 可取出投影
-                return float4(shadow, shadow, shadow, 1.0);
+        
+            SubShader
+        
+            {
+        
+                Tags{
+        
+                "RenderPipeline"="UniversalRenderPipeline"
+        
+                "RenderType"="Opaque"
+        
+                }
+        
+                HLSLINCLUDE
+        
+                #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+        
+                #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+        
+        
+        
+                CBUFFER_START(UnityPerMaterial)
+        
+                float4 _MainTex_ST;
+        
+                half4 _BaseColor;
+        
+                half _Gloss;
+        
+                real4 _SpecularColor;
+        
+                CBUFFER_END
+        
+                TEXTURE2D( _MainTex);
+        
+                SAMPLER(sampler_MainTex);
+        
+                 struct a2v
+        
+                 {
+        
+                     float4 positionOS:POSITION;
+        
+                     float4 normalOS:NORMAL;
+        
+                     float2 texcoord:TEXCOORD;
+        
+                 };
+        
+                 struct v2f
+        
+                 {
+        
+                     float4 positionCS:SV_POSITION;
+        
+                     float2 texcoord:TEXCOORD;
+        
+                     float3 positionWS:TEXCOORD1; 
+        
+                     float3 normalWS:NORMAL;
+        
+                 };
+        
+                ENDHLSL
+        
+        
+        
+                pass
+        
+                {
+        
+                Tags{
+        
+                 "LightMode"="UniversalForward"
+        
+                }
+        
+                    HLSLPROGRAM
+        
+                    #pragma vertex VERT
+        
+                    #pragma fragment FRAG
+        
+                    #pragma multi_compile _ _MAIN_LIGHT_SHADOWS
+        
+                    #pragma multi_compile _ _MAIN_LIGHT_SHADOWS_CASCADE
+        
+                    #pragma multi_compile _ _SHADOWS_SOFT//柔化阴影，得到软阴影
+        
+                    v2f VERT(a2v i)
+        
+                    {
+        
+                        v2f o;
+        
+                        o.positionCS=TransformObjectToHClip(i.positionOS.xyz);
+        
+                        o.texcoord=TRANSFORM_TEX(i.texcoord,_MainTex);
+        
+                        o.positionWS=TransformObjectToWorld(i.positionOS.xyz);
+        
+                        o.normalWS=TransformObjectToWorldNormal(i.normalOS);
+        
+                        return o;
+        
+                    }
+        
+                    half4 FRAG(v2f i):SV_TARGET
+        
+                    {
+        
+                        half4 tex=SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,i.texcoord)*_BaseColor;
+        
+                        Light mylight=GetMainLight(TransformWorldToShadowCoord(i.positionWS));
+        
+                        float3 WS_L=normalize(mylight.direction);
+        
+                        float3 WS_N=normalize( i.normalWS);
+        
+                        float3 WS_V=normalize(_WorldSpaceCameraPos-i.positionWS);
+        
+                        float3 WS_H=normalize(WS_V+WS_L);
+        
+                        tex*=(dot(WS_L,WS_N)*0.5+0.5)*mylight.shadowAttenuation*real4(mylight.color,1);
+        
+                        float4 Specular =pow(max(dot(WS_N,WS_H),0) ,_Gloss)*_SpecularColor*mylight.shadowAttenuation;
+        
+                        // return tex+Specular  ;
+                        return mylight.shadowAttenuation;
+                    }
+        
+                    ENDHLSL
+        
+                }
+        
+                UsePass "Universal Render Pipeline/Lit/ShadowCaster"
+        
+        
+        
             }
-            ENDCG
-        }
-    }
-    FallBack "Diffuse"
-}
+        
+        
+        
+                
+        
+        } 
+        //作者：雪风carel https://www.bilibili.com/read/cv6436088/ 出处：bilibili
